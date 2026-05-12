@@ -3,7 +3,7 @@ const cors = require("cors");
 const crypto = require("crypto");
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.static("public"));
 const CLIENT_ID = "8d9xvq5cp4vuvswuuap8";
 const CLIENT_SECRET = "d5acf4c6b4194f8584673bd892f867c4";
 const TUYA_HOST = "https://openapi.tuyaeu.com";
