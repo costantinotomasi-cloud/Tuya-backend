@@ -1,187 +1,86 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
-  <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-  <meta name="apple-mobile-web-app-title" content="Pozzo"/>
-  <meta name="theme-color" content="#080c14"/>
-  <title>Contatore Pozzo</title>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
-  <style>
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{--bg:#080c14;--surface:#0d1320;--border:rgba(255,255,255,0.07);--text:#e8eaf0;--muted:#6b7280;--blue:#3b82f6;--green:#22c55e;--red:#ef4444;--sans:'Outfit',sans-serif;--mono:'JetBrains Mono',monospace}
-    body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100dvh;padding-bottom:40px}
-    .header{padding:48px 20px 16px;background:linear-gradient(180deg,var(--surface) 0%,transparent 100%);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;backdrop-filter:blur(16px)}
-    .header-row{display:flex;justify-content:space-between;align-items:flex-start}
-    .header-label{font-size:10px;color:var(--blue);font-weight:600;letter-spacing:0.12em;margin-bottom:4px}
-    .header-title{font-weight:900;font-size:22px;letter-spacing:-0.02em;color:#f8fafc}
-    .status-pill{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;transition:all 0.3s}
-    .status-pill.online{background:rgba(34,197,94,0.15);color:var(--green);border:1px solid rgba(34,197,94,0.3)}
-    .status-pill.loading{background:rgba(59,130,246,0.15);color:var(--blue);border:1px solid rgba(59,130,246,0.3)}
-    .status-pill.error{background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.3)}
-    .last-update{font-size:10px;color:var(--muted);margin-top:4px;text-align:right}
-    .content{padding:20px 16px;display:flex;flex-direction:column;gap:16px}
-    .error-box{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:12px;padding:12px 14px;color:#fca5a5;font-size:12px;word-break:break-all;display:none}
-    .error-box.show{display:block}
-    .retry-btn{margin-top:8px;background:rgba(239,68,68,0.2);border:none;color:#fca5a5;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-family:var(--sans);font-weight:600}
-    .power-section{display:flex;flex-direction:column;align-items:center;padding:32px 20px;gap:16px;background:linear-gradient(135deg,#0f1829,#1a2340);border:1px solid rgba(59,130,246,0.2);border-radius:24px}
-    .power-btn{width:130px;height:130px;border-radius:50%;border:none;cursor:pointer;transition:all 0.3s;display:flex;align-items:center;justify-content:center;font-size:52px}
-    .power-btn.on{background:radial-gradient(circle,#16a34a,#15803d);box-shadow:0 0 50px rgba(34,197,94,0.5),0 0 100px rgba(34,197,94,0.2)}
-    .power-btn.off{background:radial-gradient(circle,#374151,#1f2937);box-shadow:0 4px 20px rgba(0,0,0,0.4)}
-    .power-btn.busy{background:radial-gradient(circle,#1d4ed8,#1e40af);box-shadow:0 0 30px rgba(59,130,246,0.4);animation:pulse 1s ease-in-out infinite}
-    .power-btn:active{transform:scale(0.95)}
-    .power-state{font-family:var(--sans);font-weight:700;font-size:20px;letter-spacing:0.08em}
-    .power-state.on{color:var(--green)}
-    .power-state.off{color:var(--muted)}
-    .power-state.busy{color:var(--blue)}
-    .power-hint{font-size:12px;color:var(--muted)}
-    .section-title{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:0.1em;margin-bottom:10px}
-    .energy-card{background:linear-gradient(135deg,#1a2340,#0f1829);border:1px solid rgba(59,130,246,0.25);border-radius:20px;padding:18px 20px}
-    .energy-label{font-size:10px;color:#60a5fa;font-weight:600;letter-spacing:0.08em;margin-bottom:6px}
-    .energy-value{font-family:var(--mono);font-size:38px;font-weight:600;color:#f8fafc;line-height:1}
-    .energy-unit{font-size:14px;color:var(--muted)}
-    .energy-sub{font-size:11px;color:var(--muted);margin-top:6px}
-    .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-    .stat-card{background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:14px;padding:14px 10px;display:flex;flex-direction:column;gap:6px;text-align:center}
-    .stat-icon{font-size:18px}
-    .stat-value{font-family:var(--mono);font-size:14px;color:#f1f5f9;font-weight:600}
-    .stat-label{font-size:10px;color:var(--muted)}
-    .refresh-btn{padding:13px;border-radius:14px;border:1px solid rgba(59,130,246,0.25);background:rgba(59,130,246,0.12);color:#60a5fa;font-family:var(--sans);font-weight:700;font-size:14px;cursor:pointer;width:100%;transition:all 0.2s}
-    .log-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;font-family:var(--mono);font-size:11px;color:var(--muted);max-height:130px;overflow-y:auto}
-    .log-entry{padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
-    .log-entry.ok{color:#4ade80}
-    .log-entry.err{color:#f87171}
-    @keyframes pulse{0%,100%{opacity:0.8}50%{opacity:1}}
-  </style>
-</head>
-<body>
-<div class="header">
-  <div class="header-row">
-    <div>
-      <div class="header-label">POZZO · CONTROLLO REMOTO</div>
-      <div class="header-title">Contatore Pozzo</div>
-    </div>
-    <div style="text-align:right">
-      <div class="status-pill loading" id="statusPill">● Connessione...</div>
-      <div class="last-update" id="lastUpdate"></div>
-    </div>
-  </div>
-</div>
-<div class="content">
-  <div class="error-box" id="errorBox"><span id="errorText"></span><br/><button class="retry-btn" onclick="loadData()">↻ Riprova</button></div>
-  <div class="power-section">
-    <button class="power-btn off" id="powerBtn" onclick="toggleSwitch()">⏻</button>
-    <div class="power-state off" id="powerState">SPENTO</div>
-    <div class="power-hint" id="powerHint">Tocca per accendere/spegnere</div>
-  </div>
-  <div class="energy-card">
-    <div class="energy-label">ENERGIA TOTALE CONSUMATA</div>
-    <div><span class="energy-value" id="energyVal">—</span><span class="energy-unit"> kWh</span></div>
-    <div class="energy-sub" id="energySub">In attesa di dati...</div>
-  </div>
-  <div>
-    <div class="section-title">STATO RETE</div>
-    <div class="stat-grid">
-      <div class="stat-card"><div class="stat-icon">⚡</div><div class="stat-value" id="powerVal">—</div><div class="stat-label">Potenza W</div></div>
-      <div class="stat-card"><div class="stat-icon">〰️</div><div class="stat-value" id="freqVal">—</div><div class="stat-label">Freq. Hz</div></div>
-      <div class="stat-card"><div class="stat-icon">⏱️</div><div class="stat-value" id="runtimeVal">—</div><div class="stat-label">Run time</div></div>
-    </div>
-  </div>
-  <button class="refresh-btn" onclick="loadData()">↻ Aggiorna ora</button>
-  <div>
-    <div class="section-title">LOG COMANDI</div>
-    <div class="log-box" id="logBox"><div class="log-entry">In attesa di comandi...</div></div>
-  </div>
-</div>
-<script>
-const DEVICE_ID="bf4fd6c121682959ce1s88";
-const BACKEND="https://tuya-backend-avfr.onrender.com";
-let switchState=null;
-let cmdRunning=false;
+const express = require("express");
+const cors = require("cors");
+const crypto = require("crypto");
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use(express.static("public"));
 
-window.addEventListener("DOMContentLoaded",()=>{
-  loadData();
-  setInterval(loadData,5000);
+const CLIENT_ID = "8d9xvq5cp4vuvswuuap8";
+const CLIENT_SECRET = "d5acf4c6b4194f8584673bd892f867c4";
+const TUYA_HOST = "https://openapi.tuyaeu.com";
+
+function hmacSHA256(secret, message) {
+  return crypto.createHmac("sha256", secret).update(message).digest("hex").toUpperCase();
+}
+function sha256(str) {
+  return crypto.createHash("sha256").update(str).digest("hex");
+}
+
+async function tuyaFetch(urlPath, token, method, body) {
+  const t = Date.now().toString();
+  const nonce = crypto.randomUUID().replace(/-/g, "");
+  const bodyStr = body ? JSON.stringify(body) : "";
+  const bodyHash = sha256(bodyStr);
+  const signStr = token
+    ? CLIENT_ID + token + t + nonce + method + "\n" + bodyHash + "\n\n" + urlPath
+    : CLIENT_ID + t + nonce + "GET\n" + bodyHash + "\n\n" + urlPath;
+  const sign = hmacSHA256(CLIENT_SECRET, signStr);
+  const headers = {
+    "client_id": CLIENT_ID,
+    "sign": sign,
+    "t": t,
+    "sign_method": "HMAC-SHA256",
+    "nonce": nonce,
+    "Content-Type": "application/json"
+  };
+  if (token) headers["access_token"] = token;
+  const opts = { method: method || "GET", headers: headers };
+  if (body) opts.body = bodyStr;
+  const res = await fetch(TUYA_HOST + urlPath, opts);
+  return res.json();
+}
+
+async function getToken() {
+  const res = await tuyaFetch("/v1.0/token?grant_type=1");
+  if (!res.success) throw new Error("Token: " + res.msg);
+  return res.result.access_token;
+}
+
+app.get("/", function(req, res) {
+  res.sendFile(__dirname + "/public/index.html");
 });
 
-function getVal(arr,code){if(!Array.isArray(arr))return null;return arr.find(r=>r.code===code)?.value??null}
-
-async function loadData(){
-  try{
-    const res=await fetch(`${BACKEND}/device/${DEVICE_ID}/status`);
-    if(!res.ok)throw new Error("HTTP "+res.status);
-    const data=await res.json();
-    if(data.error)throw new Error(data.error);
-    updateUI(data);
-    setStatus("online","● Online");
-    document.getElementById("lastUpdate").textContent=new Date().toLocaleTimeString("it-IT");
-  }catch(e){
-    setStatus("error","● Errore");
+app.get("/device/:id/status", async function(req, res) {
+  try {
+    const token = await getToken();
+    const data = await tuyaFetch("/v1.0/devices/" + req.params.id + "/status", token, "GET", null);
+    if (!data.success) return res.status(400).json(data);
+    res.json(data.result);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
   }
-}
+});
 
-function updateUI(raw){
-  const sw=getVal(raw,"switch_1");
-  if(sw!==null&&!cmdRunning){switchState=sw;updatePowerBtn(sw)}
-  const energy=getVal(raw,"forward_energy_total");
-  if(energy!==null){
-    document.getElementById("energyVal").textContent=(energy/100).toFixed(2);
-    document.getElementById("energySub").textContent="≈ €"+(energy/100*0.25).toFixed(2)+" stimati (€0.25/kWh)";
+app.post("/device/:id/commands", async function(req, res) {
+  console.log("COMANDO RICEVUTO - Device:", req.params.id);
+  console.log("BODY:", JSON.stringify(req.body));
+  try {
+    const token = await getToken();
+    const data = await tuyaFetch(
+      "/v1.0/devices/" + req.params.id + "/commands",
+      token, "POST", req.body
+    );
+    console.log("RISPOSTA TUYA:", JSON.stringify(data));
+    if (!data.success) return res.status(400).json(data);
+    res.json(data.result);
+  } catch(e) {
+    console.log("ERRORE:", e.message);
+    res.status(500).json({ error: e.message });
   }
-  const power=getVal(raw,"power_total");
-  document.getElementById("powerVal").textContent=power!==null?(power/10).toFixed(0):"—";
-  const freq=getVal(raw,"supply_frequency");
-  document.getElementById("freqVal").textContent=freq!==null?freq:"—";
-  const rt=getVal(raw,"run_time");
-  if(rt!==null){const h=Math.floor(rt/3600);const m=Math.floor((rt%3600)/60);document.getElementById("runtimeVal").textContent=h+"h "+m+"m"}
-}
+});
 
-function updatePowerBtn(isOn){
-  document.getElementById("powerBtn").className="power-btn "+(isOn?"on":"off");
-  document.getElementById("powerState").className="power-state "+(isOn?"on":"off");
-  document.getElementById("powerState").textContent=isOn?"ACCESO":"SPENTO";
-  document.getElementById("powerHint").textContent="Tocca per "+(isOn?"spegnere":"accendere");
-}
-
-async function toggleSwitch(){
-  if(cmdRunning)return;
-  cmdRunning=true;
-  const newVal=!switchState;
-  document.getElementById("powerBtn").className="power-btn busy";
-  document.getElementById("powerState").className="power-state busy";
-  document.getElementById("powerState").textContent=newVal?"Accensione...":"Spegnimento...";
-  document.getElementById("powerHint").textContent="Attendere...";
-  addLog("Invio comando: "+(newVal?"ON":"OFF")+"...");
-  try{
-    const res=await fetch(`${BACKEND}/device/${DEVICE_ID}/commands`,{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({commands:[{code:"switch_1",value:newVal}]})
-    });
-    const data=await res.json();
-    if(data.error)throw new Error(data.error);
-    switchState=newVal;
-    updatePowerBtn(newVal);
-    addLog("✓ Comando "+(newVal?"ON":"OFF")+" eseguito","ok");
-  }catch(e){
-    updatePowerBtn(switchState);
-    addLog("✗ Errore: "+e.message,"err");
-    document.getElementById("powerHint").textContent="Errore — riprova";
-  }finally{cmdRunning=false}
-}
-
-function addLog(msg,type){
-  const box=document.getElementById("logBox");
-  const e=document.createElement("div");
-  e.className="log-entry "+(type||"");
-  e.textContent="["+new Date().toLocaleTimeString("it-IT")+"] "+msg;
-  box.insertBefore(e,box.firstChild);
-  while(box.children.length>10)box.removeChild(box.lastChild);
-}
-function setStatus(type,text){const p=document.getElementById("statusPill");p.className="status-pill "+type;p.textContent=text}
-function setError(msg){const b=document.getElementById("errorBox");if(!msg){b.classList.remove("show");return}document.getElementById("errorText").textContent=msg;b.classList.add("show")}
-</script>
-</body>
-</html>
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, function() {
+  console.log("Server running on port " + PORT);
+});
