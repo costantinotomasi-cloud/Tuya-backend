@@ -103,7 +103,7 @@ let cmdRunning=false;
 
 window.addEventListener("DOMContentLoaded",()=>{
   loadData();
-  setInterval(loadData,500);
+  setInterval(loadData,5000);
 });
 
 function getVal(arr,code){if(!Array.isArray(arr))return null;return arr.find(r=>r.code===code)?.value??null}
