@@ -10,123 +10,62 @@
   <title>Contatore Pozzo</title>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg: #080c14; --surface: #0d1320; --border: rgba(255,255,255,0.07);
-      --text: #e8eaf0; --muted: #6b7280; --blue: #3b82f6; --green: #22c55e;
-      --red: #ef4444; --sans: 'Outfit', sans-serif; --mono: 'JetBrains Mono', monospace;
-    }
-    body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100dvh; padding-bottom: 40px; }
-
-    .header {
-      padding: max(env(safe-area-inset-top, 0px) + 16px, 48px) 20px 16px;
-      background: linear-gradient(180deg, var(--surface) 0%, transparent 100%);
-      border-bottom: 1px solid var(--border);
-      position: sticky; top: 0; z-index: 10; backdrop-filter: blur(16px);
-    }
-    .header-row { display: flex; justify-content: space-between; align-items: flex-start; }
-    .header-label { font-size: 10px; color: var(--blue); font-weight: 600; letter-spacing: 0.12em; margin-bottom: 4px; }
-    .header-title { font-weight: 900; font-size: 22px; letter-spacing: -0.02em; color: #f8fafc; }
-    .status-pill { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; transition: all 0.3s; }
-    .status-pill.online  { background: rgba(34,197,94,0.15);  color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
-    .status-pill.loading { background: rgba(59,130,246,0.15); color: var(--blue);  border: 1px solid rgba(59,130,246,0.3); }
-    .status-pill.error   { background: rgba(239,68,68,0.15);  color: var(--red);   border: 1px solid rgba(239,68,68,0.3); }
-    .last-update { font-size: 10px; color: var(--muted); margin-top: 4px; text-align: right; }
-
-    .content { padding: 20px 16px; display: flex; flex-direction: column; gap: 16px; }
-
-    /* POWER BUTTON */
-    .power-section {
-      display: flex; flex-direction: column; align-items: center;
-      padding: 28px 20px; gap: 16px;
-      background: linear-gradient(135deg, #0f1829, #1a2340);
-      border: 1px solid rgba(59,130,246,0.2); border-radius: 24px;
-    }
-    .power-btn {
-      width: 120px; height: 120px; border-radius: 50%; border: none;
-      cursor: pointer; transition: all 0.3s; position: relative;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 48px;
-    }
-    .power-btn.on {
-      background: radial-gradient(circle, #16a34a, #15803d);
-      box-shadow: 0 0 40px rgba(34,197,94,0.5), 0 0 80px rgba(34,197,94,0.2);
-    }
-    .power-btn.off {
-      background: radial-gradient(circle, #374151, #1f2937);
-      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-    }
-    .power-btn.loading {
-      background: radial-gradient(circle, #1d4ed8, #1e40af);
-      box-shadow: 0 0 30px rgba(59,130,246,0.4);
-      animation: pulse 1s ease-in-out infinite;
-    }
-    .power-btn:active { transform: scale(0.95); }
-    .power-label { font-family: var(--sans); font-weight: 700; font-size: 18px; letter-spacing: 0.05em; }
-    .power-label.on  { color: var(--green); }
-    .power-label.off { color: var(--muted); }
-    .power-hint { font-size: 11px; color: var(--muted); }
-
-    /* STATS */
-    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-    .stat-card {
-      background: rgba(255,255,255,0.04); border: 1px solid var(--border);
-      border-radius: 14px; padding: 14px 10px;
-      display: flex; flex-direction: column; gap: 6px; text-align: center;
-    }
-    .stat-icon  { font-size: 18px; }
-    .stat-value { font-family: var(--mono); font-size: 14px; color: #f1f5f9; font-weight: 600; }
-    .stat-label { font-size: 10px; color: var(--muted); }
-
-    /* HERO */
-    .hero-card {
-      background: linear-gradient(135deg, #1a2340, #0f1829);
-      border: 1px solid rgba(59,130,246,0.25); border-radius: 20px; padding: 18px 20px;
-    }
-    .hero-label { font-size: 10px; color: #60a5fa; font-weight: 600; letter-spacing: 0.08em; margin-bottom: 6px; }
-    .hero-value { font-family: var(--mono); font-size: 36px; font-weight: 600; color: #f8fafc; line-height: 1; }
-    .hero-unit  { font-size: 14px; color: var(--muted); }
-    .hero-sub   { font-size: 11px; color: var(--muted); margin-top: 6px; }
-
-    /* ERROR */
-    .error-box {
-      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
-      border-radius: 12px; padding: 12px 14px; color: #fca5a5;
-      font-size: 12px; word-break: break-all; display: none;
-    }
-    .error-box.show { display: block; }
-    .retry-btn {
-      margin-top: 8px; background: rgba(239,68,68,0.2); border: none;
-      color: #fca5a5; padding: 6px 14px; border-radius: 8px;
-      cursor: pointer; font-size: 12px; font-family: var(--sans); font-weight: 600;
-    }
-
-    /* REFRESH */
-    .refresh-btn {
-      padding: 13px; border-radius: 14px; border: 1px solid rgba(59,130,246,0.25);
-      background: rgba(59,130,246,0.12); color: #60a5fa;
-      font-family: var(--sans); font-weight: 700; font-size: 14px;
-      cursor: pointer; width: 100%; transition: all 0.2s;
-    }
-    .refresh-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-    /* LOG */
-    .log-box {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 12px; padding: 12px 14px; font-family: var(--mono);
-      font-size: 11px; color: var(--muted); max-height: 120px; overflow-y: auto;
-    }
-    .log-entry { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
-    .log-entry.ok  { color: #4ade80; }
-    .log-entry.err { color: #f87171; }
-
-    @keyframes pulse { 0%,100%{opacity:0.8} 50%{opacity:1} }
-    @keyframes spin  { to { transform: rotate(360deg); } }
-    .spinning { display: inline-block; animation: spin 1s linear infinite; }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#080c14;--surface:#0d1320;--border:rgba(255,255,255,0.07);--text:#e8eaf0;--muted:#6b7280;--blue:#3b82f6;--green:#22c55e;--red:#ef4444;--sans:'Outfit',sans-serif;--mono:'JetBrains Mono',monospace}
+    body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100dvh;padding-bottom:40px}
+    .header{padding:48px 20px 16px;background:linear-gradient(180deg,var(--surface) 0%,transparent 100%);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;backdrop-filter:blur(16px)}
+    .header-row{display:flex;justify-content:space-between;align-items:flex-start}
+    .header-label{font-size:10px;color:var(--blue);font-weight:600;letter-spacing:0.12em;margin-bottom:4px}
+    .header-title{font-weight:900;font-size:22px;letter-spacing:-0.02em;color:#f8fafc}
+    .status-pill{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;transition:all 0.3s}
+    .status-pill.online{background:rgba(34,197,94,0.15);color:var(--green);border:1px solid rgba(34,197,94,0.3)}
+    .status-pill.loading{background:rgba(59,130,246,0.15);color:var(--blue);border:1px solid rgba(59,130,246,0.3)}
+    .status-pill.error{background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.3)}
+    .last-update{font-size:10px;color:var(--muted);margin-top:4px;text-align:right}
+    .content{padding:20px 16px;display:flex;flex-direction:column;gap:16px}
+    .error-box{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:12px;padding:12px 14px;color:#fca5a5;font-size:12px;word-break:break-all;display:none}
+    .error-box.show{display:block}
+    .retry-btn{margin-top:8px;background:rgba(239,68,68,0.2);border:none;color:#fca5a5;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-family:var(--sans);font-weight:600}
+    .switches-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .switch-card{border-radius:20px;padding:20px 16px;display:flex;flex-direction:column;align-items:center;gap:14px;transition:all 0.3s;cursor:pointer;border:2px solid transparent;position:relative;overflow:hidden}
+    .switch-card.on{background:linear-gradient(135deg,#14532d,#166534);border-color:rgba(34,197,94,0.4);box-shadow:0 0 30px rgba(34,197,94,0.2)}
+    .switch-card.off{background:linear-gradient(135deg,#111827,#1f2937);border-color:rgba(255,255,255,0.06)}
+    .switch-card.busy{background:linear-gradient(135deg,#1e3a5f,#1e40af);border-color:rgba(59,130,246,0.4)}
+    .switch-card:active{transform:scale(0.97)}
+    .switch-num{position:absolute;top:10px;left:14px;font-size:10px;font-weight:700;letter-spacing:0.1em;color:rgba(255,255,255,0.3)}
+    .switch-icon{font-size:36px;line-height:1}
+    .switch-label{font-weight:700;font-size:13px;letter-spacing:0.05em}
+    .switch-label.on{color:#4ade80}
+    .switch-label.off{color:var(--muted)}
+    .switch-label.busy{color:#60a5fa}
+    .toggle{width:52px;height:28px;border-radius:14px;position:relative;transition:background 0.3s;flex-shrink:0}
+    .toggle.on{background:var(--green);box-shadow:0 0 12px rgba(34,197,94,0.5)}
+    .toggle.off{background:#374151}
+    .toggle.busy{background:var(--blue)}
+    .toggle-knob{position:absolute;top:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:left 0.3s;box-shadow:0 1px 4px rgba(0,0,0,0.4)}
+    .toggle.on .toggle-knob{left:27px}
+    .toggle.off .toggle-knob{left:3px}
+    .toggle.busy .toggle-knob{left:15px}
+    .energy-card{background:linear-gradient(135deg,#1a2340,#0f1829);border:1px solid rgba(59,130,246,0.25);border-radius:20px;padding:18px 20px}
+    .energy-label{font-size:10px;color:#60a5fa;font-weight:600;letter-spacing:0.08em;margin-bottom:6px}
+    .energy-value{font-family:var(--mono);font-size:36px;font-weight:600;color:#f8fafc;line-height:1}
+    .energy-unit{font-size:14px;color:var(--muted)}
+    .energy-sub{font-size:11px;color:var(--muted);margin-top:6px}
+    .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    .stat-card{background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:14px;padding:14px 10px;display:flex;flex-direction:column;gap:6px;text-align:center}
+    .stat-icon{font-size:18px}
+    .stat-value{font-family:var(--mono);font-size:14px;color:#f1f5f9;font-weight:600}
+    .stat-label{font-size:10px;color:var(--muted)}
+    .refresh-btn{padding:13px;border-radius:14px;border:1px solid rgba(59,130,246,0.25);background:rgba(59,130,246,0.12);color:#60a5fa;font-family:var(--sans);font-weight:700;font-size:14px;cursor:pointer;width:100%;transition:all 0.2s}
+    .refresh-btn:disabled{opacity:0.4;cursor:not-allowed}
+    .section-title{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:0.1em;margin-bottom:10px}
+    .log-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;font-family:var(--mono);font-size:11px;color:var(--muted);max-height:130px;overflow-y:auto}
+    .log-entry{padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+    .log-entry.ok{color:#4ade80}
+    .log-entry.err{color:#f87171}
   </style>
 </head>
 <body>
-
 <div class="header">
   <div class="header-row">
     <div>
@@ -139,202 +78,100 @@
     </div>
   </div>
 </div>
-
 <div class="content">
-
-  <!-- ERROR -->
-  <div class="error-box" id="errorBox">
-    <span id="errorText"></span>
-    <br/><button class="retry-btn" onclick="loadData()">↻ Riprova</button>
+  <div class="error-box" id="errorBox"><span id="errorText"></span><br/><button class="retry-btn" onclick="loadData()">↻ Riprova</button></div>
+  <div><div class="section-title">INTERRUTTORI</div><div class="switches-grid" id="switchesGrid"></div></div>
+  <div class="energy-card">
+    <div class="energy-label">ENERGIA TOTALE CONSUMATA</div>
+    <div><span class="energy-value" id="energyVal">—</span><span class="energy-unit"> kWh</span></div>
+    <div class="energy-sub" id="energySub">In attesa di dati...</div>
   </div>
-
-  <!-- POWER BUTTON -->
-  <div class="power-section">
-    <button class="power-btn off" id="powerBtn" onclick="toggleSwitch()">⏻</button>
-    <div class="power-label off" id="powerLabel">SPENTO</div>
-    <div class="power-hint" id="powerHint">Tocca per accendere/spegnere</div>
-  </div>
-
-  <!-- ENERGIA TOTALE -->
-  <div class="hero-card">
-    <div class="hero-label">ENERGIA TOTALE CONSUMATA</div>
-    <div>
-      <span class="hero-value" id="energyVal">—</span>
-      <span class="hero-unit"> kWh</span>
-    </div>
-    <div class="hero-sub" id="energySub">In attesa di dati...</div>
-  </div>
-
-  <!-- STATS -->
   <div>
-    <div style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:0.1em;margin-bottom:10px;">STATO RETE</div>
+    <div class="section-title">STATO RETE</div>
     <div class="stat-grid">
-      <div class="stat-card">
-        <div class="stat-icon">⚡</div>
-        <div class="stat-value" id="powerVal">—</div>
-        <div class="stat-label">Potenza W</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">〰️</div>
-        <div class="stat-value" id="freqVal">—</div>
-        <div class="stat-label">Freq. Hz</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon" id="faultIcon">✅</div>
-        <div class="stat-value" id="faultVal">OK</div>
-        <div class="stat-label">Guasti</div>
-      </div>
+      <div class="stat-card"><div class="stat-icon">⚡</div><div class="stat-value" id="powerVal">—</div><div class="stat-label">Potenza W</div></div>
+      <div class="stat-card"><div class="stat-icon">〰️</div><div class="stat-value" id="freqVal">—</div><div class="stat-label">Freq. Hz</div></div>
+      <div class="stat-card"><div class="stat-icon" id="faultIcon">✅</div><div class="stat-value" id="faultVal">OK</div><div class="stat-label">Guasti</div></div>
     </div>
   </div>
-
-  <!-- REFRESH -->
   <button class="refresh-btn" id="refreshBtn" onclick="loadData()">↻ Aggiorna ora</button>
-
-  <!-- LOG -->
-  <div>
-    <div style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:0.1em;margin-bottom:8px;">LOG COMANDI</div>
-    <div class="log-box" id="logBox">
-      <div class="log-entry">In attesa di comandi...</div>
-    </div>
-  </div>
-
+  <div><div class="section-title">LOG COMANDI</div><div class="log-box" id="logBox"><div class="log-entry">In attesa di comandi...</div></div></div>
 </div>
-
 <script>
-const DEVICE_ID  = "bf4fd6c121682959ce1s88";
-const BACKEND    = "https://tuya-backend-avfr.onrender.com";
-let switchState  = null;
-let cmdRunning   = false;
-
-window.addEventListener("DOMContentLoaded", () => {
-  loadData();
-  setInterval(loadData, 30000);
-});
-
-function getVal(arr, code) {
-  if (!Array.isArray(arr)) return null;
-  return arr.find(r => r.code === code)?.value ?? null;
+const DEVICE_ID="bf4fd6c121682959ce1s88";
+const BACKEND="https://tuya-backend-avfr.onrender.com";
+const SWITCHES=[{code:"switch_1",label:"Switch 1"},{code:"switch_2",label:"Switch 2"},{code:"switch_3",label:"Switch 3"},{code:"switch_4",label:"Switch 4"}];
+let states={switch_1:false,switch_2:false,switch_3:false,switch_4:false};
+let busy={};
+window.addEventListener("DOMContentLoaded",()=>{renderSwitches();loadData();setInterval(loadData,30000)});
+function renderSwitches(){
+  document.getElementById("switchesGrid").innerHTML=SWITCHES.map((sw,i)=>`
+    <div class="switch-card off" id="card_${sw.code}" onclick="toggleSwitch('${sw.code}')">
+      <div class="switch-num">SW ${i+1}</div>
+      <div class="switch-icon" id="icon_${sw.code}">⏻</div>
+      <div class="switch-label off" id="label_${sw.code}">SPENTO</div>
+      <div class="toggle off" id="toggle_${sw.code}"><div class="toggle-knob"></div></div>
+    </div>`).join("");
 }
-
-async function loadData() {
-  setStatus("loading", "⟳ Aggiorno...");
-  setError(null);
-  try {
-    const res  = await fetch(`${BACKEND}/device/${DEVICE_ID}/status`);
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    updateUI(data);
-    setStatus("online", "● Online");
-    document.getElementById("lastUpdate").textContent = new Date().toLocaleTimeString("it-IT");
-  } catch(e) {
-    setError(e.message);
-    setStatus("error", "● Errore");
-  }
+function updateSwitchUI(code,isOn,isBusy){
+  const card=document.getElementById("card_"+code);
+  const label=document.getElementById("label_"+code);
+  const toggle=document.getElementById("toggle_"+code);
+  const icon=document.getElementById("icon_"+code);
+  if(!card)return;
+  if(isBusy){card.className="switch-card busy";label.className="switch-label busy";label.textContent="...";toggle.className="toggle busy";icon.textContent="⟳";}
+  else if(isOn){card.className="switch-card on";label.className="switch-label on";label.textContent="ACCESO";toggle.className="toggle on";icon.textContent="⏻";}
+  else{card.className="switch-card off";label.className="switch-label off";label.textContent="SPENTO";toggle.className="toggle off";icon.textContent="⏻";}
 }
-
-function updateUI(raw) {
-  // Switch state — prova vari codici possibili
-  const sw = getVal(raw, "switch") ?? getVal(raw, "switch_1") ?? getVal(raw, "master_switch");
-  if (sw !== null) {
-    switchState = sw;
-    updatePowerBtn(sw);
-  }
-
-  // Energia
-  const energy = getVal(raw, "forward_energy_total");
-  if (energy !== null) {
-    document.getElementById("energyVal").textContent = (energy / 100).toFixed(1);
-    document.getElementById("energySub").textContent = `≈ €${(energy / 100 * 0.25).toFixed(2)} stimati (€0.25/kWh)`;
-  }
-
-  // Potenza
-  const power = getVal(raw, "power_total") ?? getVal(raw, "cur_power");
-  document.getElementById("powerVal").textContent = power !== null ? (power / 10).toFixed(0) : "—";
-
-  // Frequenza
-  const freq = getVal(raw, "supply_frequency") ?? getVal(raw, "frequency");
-  document.getElementById("freqVal").textContent = freq !== null ? freq : "—";
-
-  // Fault
-  const fault = getVal(raw, "fault");
-  if (fault === 0) {
-    document.getElementById("faultVal").textContent = "OK";
-    document.getElementById("faultIcon").textContent = "✅";
-  } else if (fault !== null) {
-    document.getElementById("faultVal").textContent = "ERR";
-    document.getElementById("faultIcon").textContent = "⚠️";
-  }
+async function loadData(){
+  setStatus("loading","⟳ Aggiorno...");setError(null);
+  try{
+    const res=await fetch(`${BACKEND}/device/${DEVICE_ID}/status`);
+    if(!res.ok)throw new Error("HTTP "+res.status);
+    const data=await res.json();
+    if(data.error)throw new Error(data.error);
+    updateUI(data);setStatus("online","● Online");
+    document.getElementById("lastUpdate").textContent=new Date().toLocaleTimeString("it-IT");
+  }catch(e){setError(e.message);setStatus("error","● Errore");}
 }
-
-function updatePowerBtn(isOn) {
-  const btn   = document.getElementById("powerBtn");
-  const label = document.getElementById("powerLabel");
-  btn.className   = "power-btn " + (isOn ? "on" : "off");
-  label.className = "power-label " + (isOn ? "on" : "off");
-  label.textContent = isOn ? "ACCESO" : "SPENTO";
+function getVal(arr,code){if(!Array.isArray(arr))return null;return arr.find(r=>r.code===code)?.value??null;}
+function updateUI(raw){
+  SWITCHES.forEach(sw=>{const val=getVal(raw,sw.code);if(val!==null&&!busy[sw.code]){states[sw.code]=val;updateSwitchUI(sw.code,val,false);}});
+  const energy=getVal(raw,"forward_energy_total");
+  if(energy!==null){document.getElementById("energyVal").textContent=(energy/100).toFixed(1);document.getElementById("energySub").textContent=`≈ €${(energy/100*0.25).toFixed(2)} stimati`;}
+  const power=getVal(raw,"power_total")??getVal(raw,"cur_power");
+  document.getElementById("powerVal").textContent=power!==null?(power/10).toFixed(0):"—";
+  const freq=getVal(raw,"supply_frequency")??getVal(raw,"frequency");
+  document.getElementById("freqVal").textContent=freq!==null?freq:"—";
+  const fault=getVal(raw,"fault");
+  if(fault===0){document.getElementById("faultVal").textContent="OK";document.getElementById("faultIcon").textContent="✅";}
+  else if(fault!==null){document.getElementById("faultVal").textContent="ERR";document.getElementById("faultIcon").textContent="⚠️";}
 }
-
-async function toggleSwitch() {
-  if (cmdRunning) return;
-  cmdRunning = true;
-
-  const newState = !switchState;
-  const btn = document.getElementById("powerBtn");
-  btn.className = "power-btn loading";
-  document.getElementById("powerHint").textContent = newState ? "Accensione in corso..." : "Spegnimento in corso...";
-
-  addLog(`Invio comando: ${newState ? "ON" : "OFF"}...`);
-
-  try {
-    const res = await fetch(`${BACKEND}/device/${DEVICE_ID}/commands`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        commands: [{ code: "switch", value: newState }]
-      })
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-
-    switchState = newState;
-    updatePowerBtn(newState);
-    addLog(`✓ Comando ${newState ? "ON" : "OFF"} eseguito`, "ok");
-    document.getElementById("powerHint").textContent = "Tocca per accendere/spegnere";
-
-    // Rileggi stato dopo 2 secondi
-    setTimeout(loadData, 2000);
-  } catch(e) {
-    addLog(`✗ Errore: ${e.message}`, "err");
-    updatePowerBtn(switchState); // ripristina
-    document.getElementById("powerHint").textContent = "Errore — riprova";
-  } finally {
-    cmdRunning = false;
-  }
+async function toggleSwitch(code){
+  if(busy[code])return;busy[code]=true;
+  const newVal=!states[code];
+  updateSwitchUI(code,newVal,true);
+  addLog(`Comando ${code}: ${newVal?"ON":"OFF"}...`);
+  try{
+    const res=await fetch(`${BACKEND}/device/${DEVICE_ID}/commands`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({commands:[{code,value:newVal}]})});
+    const data=await res.json();
+    if(data.error)throw new Error(data.error);
+    states[code]=newVal;updateSwitchUI(code,newVal,false);
+    addLog(`✓ ${code} → ${newVal?"ON":"OFF"}`,"ok");
+    setTimeout(loadData,2000);
+  }catch(e){updateSwitchUI(code,states[code],false);addLog(`✗ Errore: ${e.message}`,"err");}
+  finally{busy[code]=false;}
 }
-
-function addLog(msg, type) {
-  const box   = document.getElementById("logBox");
-  const entry = document.createElement("div");
-  const time  = new Date().toLocaleTimeString("it-IT");
-  entry.className = "log-entry " + (type || "");
-  entry.textContent = `[${time}] ${msg}`;
-  box.insertBefore(entry, box.firstChild);
-  // Max 10 entries
-  while (box.children.length > 10) box.removeChild(box.lastChild);
+function addLog(msg,type){
+  const box=document.getElementById("logBox");
+  const entry=document.createElement("div");
+  entry.className="log-entry "+(type||"");
+  entry.textContent=`[${new Date().toLocaleTimeString("it-IT")}] ${msg}`;
+  box.insertBefore(entry,box.firstChild);
+  while(box.children.length>10)box.removeChild(box.lastChild);
 }
-
-function setStatus(type, text) {
-  const pill = document.getElementById("statusPill");
-  pill.className = "status-pill " + type;
-  pill.textContent = text;
-}
-function setError(msg) {
-  const box = document.getElementById("errorBox");
-  if (!msg) { box.classList.remove("show"); return; }
-  document.getElementById("errorText").textContent = msg;
-  box.classList.add("show");
-}
+function setStatus(type,text){const pill=document.getElementById("statusPill");pill.className="status-pill "+type;pill.textContent=text;}
+function setError(msg){const box=document.getElementById("errorBox");if(!msg){box.classList.remove("show");return;}document.getElementById("errorText").textContent=msg;box.classList.add("show");}
 </script>
 </body>
 </html>
