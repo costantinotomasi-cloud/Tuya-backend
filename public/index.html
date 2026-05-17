@@ -1,10 +1,10 @@
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
+const path = require("path");
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static("public"));
 
 const CLIENT_ID = "8d9xvq5cp4vuvswuuap8";
 const CLIENT_SECRET = "d5acf4c6b4194f8584673bd892f867c4";
@@ -47,10 +47,7 @@ async function getToken() {
   return res.result.access_token;
 }
 
-app.get("/", function(req, res) {
-  res.sendFile(__dirname + "/public/index.html");
-});
-
+// API routes PRIMA dello static
 app.get("/device/:id/status", async function(req, res) {
   try {
     const token = await getToken();
@@ -78,6 +75,14 @@ app.post("/device/:id/commands", async function(req, res) {
     console.log("ERRORE:", e.message);
     res.status(500).json({ error: e.message });
   }
+});
+
+// Static DOPO le API routes
+app.use(express.static(path.join(__dirname, "public")));
+
+// Fallback
+app.get("*", function(req, res) {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 const PORT = process.env.PORT || 3001;
