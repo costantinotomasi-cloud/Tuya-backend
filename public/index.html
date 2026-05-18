@@ -1,261 +1,640 @@
-const express    = require("express");
-const cors       = require("cors");
-const crypto     = require("crypto");
-const mongoose   = require("mongoose");
-const bcrypt     = require("bcryptjs");
-const jwt        = require("jsonwebtoken");
-const path       = require("path");
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-// ── CONFIG ──
-const MONGO_URI     = process.env.MONGO_URI     || "mongodb+srv://costantinotomasi:Lorenzo2021@appgb.rshzn7i.mongodb.net/domotica?appName=AppGB";
-const JWT_SECRET    = process.env.JWT_SECRET    || "domotica_secret_2024";
-const TUYA_HOST     = "https://openapi.tuyaeu.com";
-
-// ── MONGODB ──
-mongoose.connect(MONGO_URI)
-  .then(() => console.log("MongoDB connesso"))
-  .catch(e => console.error("MongoDB errore:", e.message));
-
-// ── SCHEMAS ──
-
-// Utente
-const UserSchema = new mongoose.Schema({
-  name:      { type: String, required: true },
-  email:     { type: String, required: true, unique: true },
-  password:  { type: String, required: true },
-  role:      { type: String, enum: ["admin", "client"], default: "client" },
-  createdAt: { type: Date, default: Date.now }
-});
-
-// Dispositivo
-const DeviceSchema = new mongoose.Schema({
-  userId:      { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  name:        { type: String, required: true },
-  deviceId:    { type: String, required: true },
-  type:        { type: String, enum: ["counter", "valve", "sensor", "other"], default: "counter" },
-  room:        { type: String, default: "Generale" },
-  tuyaClientId:     { type: String },
-  tuyaClientSecret: { type: String },
-  active:      { type: Boolean, default: true },
-  createdAt:   { type: Date, default: Date.now }
-});
-
-const User   = mongoose.model("User",   UserSchema);
-const Device = mongoose.model("Device", DeviceSchema);
-
-// ── TUYA HELPERS ──
-function hmacSHA256(secret, message) {
-  return crypto.createHmac("sha256", secret).update(message).digest("hex").toUpperCase();
-}
-function sha256(str) {
-  return crypto.createHash("sha256").update(str).digest("hex");
-}
-
-async function tuyaFetch(clientId, clientSecret, urlPath, token, method, body) {
-  const t        = Date.now().toString();
-  const nonce    = crypto.randomUUID().replace(/-/g, "");
-  const bodyStr  = body ? JSON.stringify(body) : "";
-  const bodyHash = sha256(bodyStr);
-  const signStr  = token
-    ? clientId + token + t + nonce + method + "\n" + bodyHash + "\n\n" + urlPath
-    : clientId + t + nonce + "GET\n" + bodyHash + "\n\n" + urlPath;
-  const sign = hmacSHA256(clientSecret, signStr);
-  const headers = {
-    "client_id":    clientId,
-    "sign":         sign,
-    "t":            t,
-    "sign_method":  "HMAC-SHA256",
-    "nonce":        nonce,
-    "Content-Type": "application/json"
-  };
-  if (token) headers["access_token"] = token;
-  const opts = { method: method || "GET", headers };
-  if (body) opts.body = bodyStr;
-  const res = await fetch(TUYA_HOST + urlPath, opts);
-  return res.json();
-}
-
-async function getTuyaToken(clientId, clientSecret) {
-  const res = await tuyaFetch(clientId, clientSecret, "/v1.0/token?grant_type=1", null, "GET", null);
-  if (!res.success) throw new Error("Token Tuya: " + res.msg);
-  return res.result.access_token;
-}
-
-// ── AUTH MIDDLEWARE ──
-function authMiddleware(req, res, next) {
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith("Bearer ")) return res.status(401).json({ error: "Non autorizzato" });
-  try {
-    req.user = jwt.verify(auth.split(" ")[1], JWT_SECRET);
-    next();
-  } catch(e) {
-    res.status(401).json({ error: "Token non valido" });
-  }
-}
-
-function adminMiddleware(req, res, next) {
-  if (req.user.role !== "admin") return res.status(403).json({ error: "Solo admin" });
-  next();
-}
-
-// ════════════════════════════════════════
-// AUTH ROUTES
-// ════════════════════════════════════════
-
-// Login
-app.post("/auth/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user) return res.status(401).json({ error: "Email o password errati" });
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok) return res.status(401).json({ error: "Email o password errati" });
-    const token = jwt.sign({ id: user._id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: "30d" });
-    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ════════════════════════════════════════
-// ADMIN ROUTES
-// ════════════════════════════════════════
-
-// Lista utenti (solo admin)
-app.get("/admin/users", authMiddleware, adminMiddleware, async (req, res) => {
-  try {
-    const users = await User.find({}, "-password");
-    res.json(users);
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Crea utente (solo admin)
-app.post("/admin/users", authMiddleware, adminMiddleware, async (req, res) => {
-  try {
-    const { name, email, password, role } = req.body;
-    const exists = await User.findOne({ email });
-    if (exists) return res.status(400).json({ error: "Email già esistente" });
-    const hash = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, password: hash, role: role || "client" });
-    res.json({ id: user._id, name: user.name, email: user.email, role: user.role });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Elimina utente (solo admin)
-app.delete("/admin/users/:id", authMiddleware, adminMiddleware, async (req, res) => {
-  try {
-    await User.findByIdAndDelete(req.params.id);
-    await Device.deleteMany({ userId: req.params.id });
-    res.json({ success: true });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Lista tutti i dispositivi (solo admin)
-app.get("/admin/devices", authMiddleware, adminMiddleware, async (req, res) => {
-  try {
-    const devices = await Device.find().populate("userId", "name email");
-    res.json(devices);
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Crea dispositivo per un utente (solo admin)
-app.post("/admin/devices", authMiddleware, adminMiddleware, async (req, res) => {
-  try {
-    const { userId, name, deviceId, type, room, tuyaClientId, tuyaClientSecret } = req.body;
-    const device = await Device.create({ userId, name, deviceId, type, room, tuyaClientId, tuyaClientSecret });
-    res.json(device);
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Elimina dispositivo (solo admin)
-app.delete("/admin/devices/:id", authMiddleware, adminMiddleware, async (req, res) => {
-  try {
-    await Device.findByIdAndDelete(req.params.id);
-    res.json({ success: true });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ════════════════════════════════════════
-// CLIENT ROUTES
-// ════════════════════════════════════════
-
-// Lista dispositivi dell'utente
-app.get("/devices", authMiddleware, async (req, res) => {
-  try {
-    const devices = await Device.find({ userId: req.user.id, active: true }, "-tuyaClientSecret");
-    res.json(devices);
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Stato dispositivo
-app.get("/devices/:id/status", authMiddleware, async (req, res) => {
-  try {
-    const device = await Device.findOne({ _id: req.params.id, userId: req.user.id });
-    if (!device) return res.status(404).json({ error: "Dispositivo non trovato" });
-    const clientId     = device.tuyaClientId     || "8d9xvq5cp4vuvswuuap8";
-    const clientSecret = device.tuyaClientSecret || "d5acf4c6b4194f8584673bd892f867c4";
-    const token = await getTuyaToken(clientId, clientSecret);
-    const data  = await tuyaFetch(clientId, clientSecret, "/v1.0/devices/" + device.deviceId + "/status", token, "GET", null);
-    if (!data.success) return res.status(400).json(data);
-    res.json(data.result);
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Comando dispositivo
-app.post("/devices/:id/commands", authMiddleware, async (req, res) => {
-  try {
-    const device = await Device.findOne({ _id: req.params.id, userId: req.user.id });
-    if (!device) return res.status(404).json({ error: "Dispositivo non trovato" });
-    const clientId     = device.tuyaClientId     || "8d9xvq5cp4vuvswuuap8";
-    const clientSecret = device.tuyaClientSecret || "d5acf4c6b4194f8584673bd892f867c4";
-    console.log("COMANDO:", device.name, JSON.stringify(req.body));
-    const token = await getTuyaToken(clientId, clientSecret);
-    const data  = await tuyaFetch(clientId, clientSecret, "/v1.0/devices/" + device.deviceId + "/commands", token, "POST", req.body);
-    console.log("RISPOSTA:", JSON.stringify(data));
-    if (!data.success) return res.status(400).json(data);
-    res.json(data.result);
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ── SERVE PWA ──
-app.use(express.static(path.join(__dirname, "public")));
-app.get("*", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
-
-// ── START ──
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, async () => {
-  console.log("Server running on port " + PORT);
-  // Crea admin di default se non esiste
-  try {
-    const exists = await User.findOne({ role: "admin" });
-    if (!exists) {
-      const hash = await bcrypt.hash("admin123", 10);
-      await User.create({ name: "Admin", email: "admin@domotica.it", password: hash, role: "admin" });
-      console.log("Admin creato: admin@domotica.it / admin123");
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Domotica"/>
+  <meta name="theme-color" content="#080c14"/>
+  <title>Domotica</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#080c14;--surface:#0d1320;--surface2:#111827;
+      --border:rgba(255,255,255,0.07);--text:#e8eaf0;--muted:#6b7280;
+      --blue:#3b82f6;--green:#22c55e;--red:#ef4444;--yellow:#f59e0b;
+      --sans:'Outfit',sans-serif;--mono:'JetBrains Mono',monospace;
     }
-  } catch(e) {
-    console.log("Errore creazione admin:", e.message);
+    body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100dvh}
+
+    /* ── PAGES ── */
+    .page{display:none;min-height:100dvh;flex-direction:column}
+    .page.active{display:flex}
+
+    /* ── LOGIN PAGE ── */
+    #loginPage{align-items:center;justify-content:center;padding:24px}
+    .login-box{width:100%;max-width:380px;display:flex;flex-direction:column;gap:20px}
+    .login-logo{text-align:center;margin-bottom:8px}
+    .login-logo .icon{font-size:48px}
+    .login-logo h1{font-family:var(--sans);font-weight:900;font-size:28px;color:#f8fafc;margin-top:8px}
+    .login-logo p{font-size:13px;color:var(--muted);margin-top:4px}
+    .input-group{display:flex;flex-direction:column;gap:6px}
+    .input-group label{font-size:12px;color:var(--muted);font-weight:600;letter-spacing:0.05em}
+    .input-field{padding:13px 16px;border-radius:12px;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:var(--sans);font-size:15px;outline:none;transition:border-color 0.2s}
+    .input-field:focus{border-color:var(--blue)}
+    .btn-primary{padding:14px;border-radius:14px;border:none;background:var(--blue);color:#fff;font-family:var(--sans);font-weight:700;font-size:15px;cursor:pointer;transition:all 0.2s}
+    .btn-primary:active{transform:scale(0.98)}
+    .btn-primary:disabled{opacity:0.5;cursor:not-allowed}
+    .error-msg{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px 14px;color:#fca5a5;font-size:13px;display:none}
+    .error-msg.show{display:block}
+
+    /* ── MAIN LAYOUT ── */
+    #mainPage{flex-direction:column}
+    .topbar{padding:max(env(safe-area-inset-top,0px) + 12px,44px) 20px 12px;background:linear-gradient(180deg,var(--surface) 0%,transparent 100%);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;backdrop-filter:blur(16px);display:flex;justify-content:space-between;align-items:center}
+    .topbar-left h2{font-weight:900;font-size:20px;color:#f8fafc}
+    .topbar-left p{font-size:11px;color:var(--muted);margin-top:2px}
+    .topbar-right{display:flex;gap:8px;align-items:center}
+    .avatar{width:36px;height:36px;border-radius:50%;background:var(--blue);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;cursor:pointer}
+    .badge-admin{background:rgba(245,158,11,0.15);color:var(--yellow);border:1px solid rgba(245,158,11,0.3);padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700}
+
+    /* ── TABS ── */
+    .tabs{display:flex;padding:12px 16px;gap:8px;border-bottom:1px solid var(--border)}
+    .tab{padding:8px 16px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:none;transition:all 0.2s;font-family:var(--sans)}
+    .tab.active{background:var(--blue);color:#fff}
+    .tab.inactive{background:rgba(255,255,255,0.05);color:var(--muted)}
+
+    /* ── CONTENT ── */
+    .tab-content{display:none;padding:16px;flex-direction:column;gap:14px;overflow-y:auto;flex:1}
+    .tab-content.active{display:flex}
+
+    /* ── DEVICE CARD ── */
+    .device-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:20px;display:flex;flex-direction:column;gap:16px}
+    .device-card.on{border-color:rgba(34,197,94,0.3);background:linear-gradient(135deg,#0a1f12,#0d1320)}
+    .device-header{display:flex;justify-content:space-between;align-items:flex-start}
+    .device-name{font-weight:700;font-size:16px;color:#f1f5f9}
+    .device-room{font-size:11px;color:var(--muted);margin-top:2px}
+    .device-type-badge{padding:3px 8px;border-radius:8px;font-size:10px;font-weight:600;background:rgba(59,130,246,0.15);color:#60a5fa}
+
+    /* ── POWER BTN ── */
+    .power-row{display:flex;align-items:center;justify-content:space-between}
+    .power-btn{width:64px;height:64px;border-radius:50%;border:none;cursor:pointer;transition:all 0.3s;display:flex;align-items:center;justify-content:center;font-size:26px}
+    .power-btn.on{background:radial-gradient(circle,#16a34a,#15803d);box-shadow:0 0 24px rgba(34,197,94,0.4)}
+    .power-btn.off{background:radial-gradient(circle,#374151,#1f2937)}
+    .power-btn.busy{background:radial-gradient(circle,#1d4ed8,#1e40af);animation:pulse 1s ease-in-out infinite}
+    .power-btn:active{transform:scale(0.95)}
+    .power-info{display:flex;flex-direction:column;gap:4px}
+    .power-state{font-weight:700;font-size:18px}
+    .power-state.on{color:var(--green)}
+    .power-state.off{color:var(--muted)}
+    .power-hint{font-size:11px;color:var(--muted)}
+
+    /* ── STATS ── */
+    .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .stat-item{background:rgba(255,255,255,0.04);border-radius:12px;padding:10px 8px;text-align:center}
+    .stat-val{font-family:var(--mono);font-size:13px;color:#f1f5f9;font-weight:600}
+    .stat-lbl{font-size:9px;color:var(--muted);margin-top:3px}
+
+    /* ── ENERGY ── */
+    .energy-row{background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center}
+    .energy-val{font-family:var(--mono);font-size:22px;font-weight:600;color:#60a5fa}
+    .energy-lbl{font-size:10px;color:var(--muted)}
+
+    /* ── ADMIN ── */
+    .section-title{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:0.1em;margin-bottom:8px}
+    .list-item{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center}
+    .list-item-info h4{font-size:14px;font-weight:600;color:#f1f5f9}
+    .list-item-info p{font-size:11px;color:var(--muted);margin-top:2px}
+    .btn-sm{padding:6px 12px;border-radius:8px;border:none;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--sans)}
+    .btn-danger{background:rgba(239,68,68,0.15);color:#fca5a5}
+    .btn-success{background:rgba(34,197,94,0.15);color:#4ade80}
+
+    /* ── MODAL ── */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:100;display:none;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)}
+    .modal-overlay.show{display:flex}
+    .modal{background:var(--surface2);border-radius:24px 24px 0 0;padding:24px;width:100%;max-width:480px;display:flex;flex-direction:column;gap:16px;max-height:80vh;overflow-y:auto}
+    .modal h3{font-size:18px;font-weight:700;color:#f1f5f9}
+    .btn-secondary{padding:12px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:var(--sans);font-weight:600;font-size:14px;cursor:pointer}
+
+    /* ── LOG ── */
+    .log-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 12px;font-family:var(--mono);font-size:10px;color:var(--muted);max-height:100px;overflow-y:auto}
+    .log-ok{color:#4ade80}
+    .log-err{color:#f87171}
+
+    /* ── EMPTY STATE ── */
+    .empty-state{text-align:center;padding:40px 20px;color:var(--muted)}
+    .empty-state .icon{font-size:40px;margin-bottom:12px}
+    .empty-state p{font-size:14px}
+
+    @keyframes pulse{0%,100%{opacity:0.8}50%{opacity:1}}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .spinning{display:inline-block;animation:spin 1s linear infinite}
+  </style>
+</head>
+<body>
+
+<!-- ════════ LOGIN PAGE ════════ -->
+<div id="loginPage" class="page active">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="icon">🏠</div>
+      <h1>Domotica</h1>
+      <p>Accedi per gestire i tuoi dispositivi</p>
+    </div>
+    <div class="input-group">
+      <label>EMAIL</label>
+      <input class="input-field" id="loginEmail" type="email" placeholder="email@esempio.it" autocomplete="email"/>
+    </div>
+    <div class="input-group">
+      <label>PASSWORD</label>
+      <input class="input-field" id="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password"/>
+    </div>
+    <div class="error-msg" id="loginError"></div>
+    <button class="btn-primary" id="loginBtn" onclick="doLogin()">Accedi</button>
+  </div>
+</div>
+
+<!-- ════════ MAIN PAGE ════════ -->
+<div id="mainPage" class="page">
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <h2 id="topbarTitle">🏠 Domotica</h2>
+      <p id="topbarSub">Caricamento...</p>
+    </div>
+    <div class="topbar-right">
+      <span class="badge-admin" id="adminBadge" style="display:none">ADMIN</span>
+      <div class="avatar" id="avatarBtn" onclick="doLogout()">?</div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs" id="tabsBar">
+    <button class="tab active" onclick="showTab('control')">🎛️ Controllo</button>
+    <button class="tab inactive" onclick="showTab('auto')">⚙️ Automazioni</button>
+    <button class="tab inactive" id="adminTab" style="display:none" onclick="showTab('admin')">👤 Admin</button>
+  </div>
+
+  <!-- TAB: Controllo -->
+  <div class="tab-content active" id="tab-control">
+    <div id="devicesList"></div>
+  </div>
+
+  <!-- TAB: Automazioni -->
+  <div class="tab-content" id="tab-auto">
+    <div class="empty-state">
+      <div class="icon">⚙️</div>
+      <p>Le automazioni saranno disponibili<br/>nella prossima versione</p>
+    </div>
+  </div>
+
+  <!-- TAB: Admin -->
+  <div class="tab-content" id="tab-admin">
+
+    <!-- Utenti -->
+    <div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="section-title" style="margin:0">UTENTI</div>
+        <button class="btn-sm btn-success" onclick="showAddUserModal()">+ Aggiungi</button>
+      </div>
+      <div id="usersList" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+
+    <!-- Dispositivi -->
+    <div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="section-title" style="margin:0">TUTTI I DISPOSITIVI</div>
+        <button class="btn-sm btn-success" onclick="showAddDeviceModal()">+ Aggiungi</button>
+      </div>
+      <div id="adminDevicesList" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- ════════ MODAL: Aggiungi Utente ════════ -->
+<div class="modal-overlay" id="addUserModal">
+  <div class="modal">
+    <h3>➕ Nuovo Utente</h3>
+    <div class="input-group"><label>NOME</label><input class="input-field" id="newUserName" placeholder="Mario Rossi"/></div>
+    <div class="input-group"><label>EMAIL</label><input class="input-field" id="newUserEmail" type="email" placeholder="mario@email.it"/></div>
+    <div class="input-group"><label>PASSWORD</label><input class="input-field" id="newUserPassword" type="password" placeholder="••••••••"/></div>
+    <div class="input-group">
+      <label>RUOLO</label>
+      <select class="input-field" id="newUserRole">
+        <option value="client">Cliente</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <div class="error-msg" id="addUserError"></div>
+    <button class="btn-primary" onclick="addUser()">Crea Utente</button>
+    <button class="btn-secondary" onclick="hideModal('addUserModal')">Annulla</button>
+  </div>
+</div>
+
+<!-- ════════ MODAL: Aggiungi Dispositivo ════════ -->
+<div class="modal-overlay" id="addDeviceModal">
+  <div class="modal">
+    <h3>➕ Nuovo Dispositivo</h3>
+    <div class="input-group"><label>UTENTE</label><select class="input-field" id="newDeviceUser"></select></div>
+    <div class="input-group"><label>NOME DISPOSITIVO</label><input class="input-field" id="newDeviceName" placeholder="Contatore Pozzo"/></div>
+    <div class="input-group"><label>DEVICE ID TUYA</label><input class="input-field" id="newDeviceId" placeholder="bf4fd6c121682959ce1s88" style="font-family:var(--mono);font-size:12px"/></div>
+    <div class="input-group">
+      <label>TIPO</label>
+      <select class="input-field" id="newDeviceType">
+        <option value="counter">Contatore Energia</option>
+        <option value="valve">Valvola</option>
+        <option value="sensor">Sensore</option>
+        <option value="other">Altro</option>
+      </select>
+    </div>
+    <div class="input-group"><label>STANZA</label><input class="input-field" id="newDeviceRoom" placeholder="Pozzo"/></div>
+    <div class="error-msg" id="addDeviceError"></div>
+    <button class="btn-primary" onclick="addDevice()">Aggiungi Dispositivo</button>
+    <button class="btn-secondary" onclick="hideModal('addDeviceModal')">Annulla</button>
+  </div>
+</div>
+
+<script>
+const BACKEND = "";  // stesso server
+let token = localStorage.getItem("domotica_token");
+let currentUser = null;
+let devices = [];
+let deviceStates = {};
+let busyDevices = {};
+let refreshInterval;
+
+// ════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════
+window.addEventListener("DOMContentLoaded", () => {
+  if (token) {
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      currentUser = payload;
+      showMain();
+    } catch(e) {
+      localStorage.removeItem("domotica_token");
+      token = null;
+    }
   }
 });
+
+function showPage(id) {
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+}
+
+function showTab(name) {
+  document.querySelectorAll(".tab-content").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".tab").forEach(t => t.classList.replace("active","inactive"));
+  document.getElementById("tab-" + name).classList.add("active");
+  event.target.classList.replace("inactive","active");
+  if (name === "admin") loadAdminData();
+}
+
+// ════════════════════════════════════════
+// AUTH
+// ════════════════════════════════════════
+async function doLogin() {
+  const email    = document.getElementById("loginEmail").value.trim();
+  const password = document.getElementById("loginPassword").value;
+  const btn      = document.getElementById("loginBtn");
+  const errEl    = document.getElementById("loginError");
+  errEl.classList.remove("show");
+  btn.disabled = true;
+  btn.textContent = "Accesso in corso...";
+  try {
+    const res  = await fetch("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    token = data.token;
+    currentUser = data.user;
+    localStorage.setItem("domotica_token", token);
+    showMain();
+  } catch(e) {
+    errEl.textContent = e.message;
+    errEl.classList.add("show");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Accedi";
+  }
+}
+
+function doLogout() {
+  if (!confirm("Vuoi uscire?")) return;
+  localStorage.removeItem("domotica_token");
+  token = null;
+  currentUser = null;
+  clearInterval(refreshInterval);
+  showPage("loginPage");
+}
+
+// ════════════════════════════════════════
+// MAIN
+// ════════════════════════════════════════
+function showMain() {
+  showPage("mainPage");
+  // Topbar
+  document.getElementById("topbarSub").textContent = "Benvenuto, " + currentUser.name;
+  document.getElementById("avatarBtn").textContent = currentUser.name.charAt(0).toUpperCase();
+  // Admin
+  if (currentUser.role === "admin") {
+    document.getElementById("adminBadge").style.display = "inline";
+    document.getElementById("adminTab").style.display = "inline";
+  }
+  loadDevices();
+  refreshInterval = setInterval(refreshAllDevices, 5000);
+}
+
+// ════════════════════════════════════════
+// DEVICES
+// ════════════════════════════════════════
+async function loadDevices() {
+  try {
+    const res  = await apiFetch("/devices");
+    devices    = await res.json();
+    renderDevices();
+    refreshAllDevices();
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+function renderDevices() {
+  const container = document.getElementById("devicesList");
+  if (devices.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div class="icon">🔌</div><p>Nessun dispositivo configurato.<br/>Contatta l'amministratore.</p></div>`;
+    return;
+  }
+  container.innerHTML = devices.map(d => `
+    <div class="device-card" id="card_${d._id}">
+      <div class="device-header">
+        <div>
+          <div class="device-name">${d.name}</div>
+          <div class="device-room">${d.room}</div>
+        </div>
+        <span class="device-type-badge">${typeLabel(d.type)}</span>
+      </div>
+      ${d.type === "counter" ? renderCounter(d) : renderSwitch(d)}
+      <div class="log-box" id="log_${d._id}"><span style="color:var(--muted)">In attesa...</span></div>
+    </div>
+  `).join("");
+}
+
+function typeLabel(t) {
+  return {counter:"Contatore",valve:"Valvola",sensor:"Sensore",other:"Dispositivo"}[t] || t;
+}
+
+function renderCounter(d) {
+  return `
+    <div class="power-row">
+      <div class="power-info">
+        <div class="power-state off" id="state_${d._id}">—</div>
+        <div class="power-hint">Tocca per accendere/spegnere</div>
+      </div>
+      <button class="power-btn off" id="pbtn_${d._id}" onclick="toggleDevice('${d._id}')">⏻</button>
+    </div>
+    <div class="energy-row">
+      <div><div class="energy-val" id="energy_${d._id}">—</div><div class="energy-lbl">kWh totali</div></div>
+      <div style="text-align:right"><div class="energy-val" id="cost_${d._id}" style="font-size:14px;color:var(--muted)">—</div><div class="energy-lbl">€ stimati</div></div>
+    </div>
+    <div class="stats-grid">
+      <div class="stat-item"><div class="stat-val" id="pow_${d._id}">—</div><div class="stat-lbl">Potenza W</div></div>
+      <div class="stat-item"><div class="stat-val" id="freq_${d._id}">—</div><div class="stat-lbl">Freq. Hz</div></div>
+      <div class="stat-item"><div class="stat-val" id="rt_${d._id}">—</div><div class="stat-lbl">Run time</div></div>
+    </div>
+  `;
+}
+
+function renderSwitch(d) {
+  return `
+    <div class="power-row">
+      <div class="power-info">
+        <div class="power-state off" id="state_${d._id}">SPENTO</div>
+        <div class="power-hint">Tocca per accendere/spegnere</div>
+      </div>
+      <button class="power-btn off" id="pbtn_${d._id}" onclick="toggleDevice('${d._id}')">⏻</button>
+    </div>
+  `;
+}
+
+async function refreshAllDevices() {
+  for (const d of devices) {
+    try {
+      const res  = await apiFetch(`/devices/${d._id}/status`);
+      const data = await res.json();
+      if (!data.error) updateDeviceUI(d, data);
+    } catch(e) {}
+  }
+}
+
+function getVal(arr, code) {
+  if (!Array.isArray(arr)) return null;
+  return arr.find(r => r.code === code)?.value ?? null;
+}
+
+function updateDeviceUI(d, raw) {
+  if (busyDevices[d._id]) return;
+  const sw = getVal(raw, "switch_1") ?? getVal(raw, "switch");
+  if (sw !== null) {
+    deviceStates[d._id] = sw;
+    updatePowerUI(d._id, sw);
+  }
+  // Contatore
+  const energy = getVal(raw, "forward_energy_total");
+  if (energy !== null && document.getElementById("energy_" + d._id)) {
+    document.getElementById("energy_" + d._id).textContent = (energy/100).toFixed(2);
+    document.getElementById("cost_" + d._id).textContent = "€" + (energy/100*0.25).toFixed(2);
+  }
+  const pow = getVal(raw, "power_total");
+  if (pow !== null && document.getElementById("pow_" + d._id))
+    document.getElementById("pow_" + d._id).textContent = (pow/10).toFixed(0);
+  const freq = getVal(raw, "supply_frequency");
+  if (freq !== null && document.getElementById("freq_" + d._id))
+    document.getElementById("freq_" + d._id).textContent = freq;
+  const rt = getVal(raw, "run_time");
+  if (rt !== null && document.getElementById("rt_" + d._id)) {
+    const h = Math.floor(rt/3600), m = Math.floor((rt%3600)/60);
+    document.getElementById("rt_" + d._id).textContent = h + "h " + m + "m";
+  }
+}
+
+function updatePowerUI(id, isOn) {
+  const btn   = document.getElementById("pbtn_"  + id);
+  const state = document.getElementById("state_" + id);
+  const card  = document.getElementById("card_"  + id);
+  if (!btn) return;
+  btn.className   = "power-btn " + (isOn ? "on" : "off");
+  state.className = "power-state " + (isOn ? "on" : "off");
+  state.textContent = isOn ? "ACCESO" : "SPENTO";
+  if (card) card.classList.toggle("on", isOn);
+}
+
+async function toggleDevice(id) {
+  if (busyDevices[id]) return;
+  busyDevices[id] = true;
+  const newVal = !deviceStates[id];
+  const btn    = document.getElementById("pbtn_" + id);
+  const state  = document.getElementById("state_" + id);
+  btn.className = "power-btn busy";
+  state.className = "power-state busy";
+  state.textContent = newVal ? "Accensione..." : "Spegnimento...";
+  addLog(id, `Invio ${newVal ? "ON" : "OFF"}...`);
+  try {
+    const res  = await apiFetch(`/devices/${id}/commands`, "POST", { commands: [{ code: "switch_1", value: newVal }] });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    deviceStates[id] = newVal;
+    updatePowerUI(id, newVal);
+    addLog(id, `✓ ${newVal ? "ON" : "OFF"} eseguito`, "ok");
+  } catch(e) {
+    updatePowerUI(id, deviceStates[id] ?? false);
+    addLog(id, `✗ ${e.message}`, "err");
+  } finally {
+    busyDevices[id] = false;
+  }
+}
+
+function addLog(id, msg, type) {
+  const box = document.getElementById("log_" + id);
+  if (!box) return;
+  const el = document.createElement("div");
+  el.className = type === "ok" ? "log-ok" : type === "err" ? "log-err" : "";
+  el.textContent = "[" + new Date().toLocaleTimeString("it-IT") + "] " + msg;
+  box.insertBefore(el, box.firstChild);
+  while (box.children.length > 5) box.removeChild(box.lastChild);
+}
+
+// ════════════════════════════════════════
+// ADMIN
+// ════════════════════════════════════════
+let allUsers = [];
+
+async function loadAdminData() {
+  try {
+    const [uRes, dRes] = await Promise.all([apiFetch("/admin/users"), apiFetch("/admin/devices")]);
+    allUsers = await uRes.json();
+    const allDevices = await dRes.json();
+    renderAdminUsers(allUsers);
+    renderAdminDevices(allDevices);
+  } catch(e) { console.error(e); }
+}
+
+function renderAdminUsers(users) {
+  const el = document.getElementById("usersList");
+  el.innerHTML = users.map(u => `
+    <div class="list-item">
+      <div class="list-item-info">
+        <h4>${u.name}</h4>
+        <p>${u.email} · <span style="color:${u.role==='admin'?'var(--yellow)':'var(--blue)'}">${u.role}</span></p>
+      </div>
+      ${u.role !== "admin" ? `<button class="btn-sm btn-danger" onclick="deleteUser('${u._id}')">Elimina</button>` : ""}
+    </div>
+  `).join("");
+}
+
+function renderAdminDevices(devs) {
+  const el = document.getElementById("adminDevicesList");
+  el.innerHTML = devs.map(d => `
+    <div class="list-item">
+      <div class="list-item-info">
+        <h4>${d.name}</h4>
+        <p>${d.userId?.name || "?"} · ${d.room} · <span style="font-family:var(--mono);font-size:10px">${d.deviceId}</span></p>
+      </div>
+      <button class="btn-sm btn-danger" onclick="deleteDevice('${d._id}')">Elimina</button>
+    </div>
+  `).join("");
+}
+
+function showAddUserModal() {
+  document.getElementById("addUserError").classList.remove("show");
+  document.getElementById("addUserModal").classList.add("show");
+}
+
+function showAddDeviceModal() {
+  document.getElementById("addDeviceError").classList.remove("show");
+  // Popola select utenti
+  const sel = document.getElementById("newDeviceUser");
+  sel.innerHTML = allUsers.filter(u => u.role === "client").map(u => `<option value="${u._id}">${u.name}</option>`).join("");
+  document.getElementById("addDeviceModal").classList.add("show");
+}
+
+function hideModal(id) {
+  document.getElementById(id).classList.remove("show");
+}
+
+async function addUser() {
+  const name     = document.getElementById("newUserName").value.trim();
+  const email    = document.getElementById("newUserEmail").value.trim();
+  const password = document.getElementById("newUserPassword").value;
+  const role     = document.getElementById("newUserRole").value;
+  const errEl    = document.getElementById("addUserError");
+  errEl.classList.remove("show");
+  try {
+    const res  = await apiFetch("/admin/users", "POST", { name, email, password, role });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    hideModal("addUserModal");
+    loadAdminData();
+  } catch(e) {
+    errEl.textContent = e.message;
+    errEl.classList.add("show");
+  }
+}
+
+async function addDevice() {
+  const userId   = document.getElementById("newDeviceUser").value;
+  const name     = document.getElementById("newDeviceName").value.trim();
+  const deviceId = document.getElementById("newDeviceId").value.trim();
+  const type     = document.getElementById("newDeviceType").value;
+  const room     = document.getElementById("newDeviceRoom").value.trim();
+  const errEl    = document.getElementById("addDeviceError");
+  errEl.classList.remove("show");
+  try {
+    const res  = await apiFetch("/admin/devices", "POST", { userId, name, deviceId, type, room });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    hideModal("addDeviceModal");
+    loadAdminData();
+  } catch(e) {
+    errEl.textContent = e.message;
+    errEl.classList.add("show");
+  }
+}
+
+async function deleteUser(id) {
+  if (!confirm("Eliminare questo utente?")) return;
+  await apiFetch("/admin/users/" + id, "DELETE");
+  loadAdminData();
+}
+
+async function deleteDevice(id) {
+  if (!confirm("Eliminare questo dispositivo?")) return;
+  await apiFetch("/admin/devices/" + id, "DELETE");
+  loadAdminData();
+}
+
+// ════════════════════════════════════════
+// API HELPER
+// ════════════════════════════════════════
+function apiFetch(path, method = "GET", body = null) {
+  const opts = {
+    method,
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token }
+  };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch(path, opts);
+}
+
+// Chiudi modal cliccando fuori
+document.querySelectorAll(".modal-overlay").forEach(overlay => {
+  overlay.addEventListener("click", e => {
+    if (e.target === overlay) overlay.classList.remove("show");
+  });
+});
+
+// Login con Enter
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && document.getElementById("loginPage").classList.contains("active")) doLogin();
+});
+</script>
+</body>
+</html>
